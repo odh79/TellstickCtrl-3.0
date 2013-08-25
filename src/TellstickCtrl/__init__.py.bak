@@ -1,0 +1,288 @@
+import MySQLdb
+import sys
+import datetime
+from time import mktime
+import calendar
+import time
+import ephem
+import os
+#from compiler.ast import For
+
+count = 0
+start = 1
+cmd= "/usr/bin/tdtool"
+
+
+    
+while count < 100000:
+    son = 0
+    soff = 0    
+    def checkHM(H,M):
+        if M >= 60:
+            M = M - 60
+            H = H + 1
+        if M < 0:
+            M = M + 60
+            H = H - 1
+            
+        result = [H, M]
+        
+        return result
+        
+        
+    def group(group):
+        cursor.execute("SELECT `rc_switches`  FROM `groups` WHERE `Group` = 'livingroom_1'")
+        Group = cursor.fetchall()
+        out = (Group[0][0]).split(";") 
+        return out
+    
+    def weekDay(wday):
+        result = ""
+        if wday == 0:
+            result = "Monday"
+        if wday == 1:
+            result = "Tuesday"
+        if wday == 2:
+            result = "Wednesday"
+        if wday == 3:
+            result = "Thursday"
+        if wday == 4:
+            result = "Friday"
+        if wday == 5:
+            result = "Saturday"
+        if wday == 6:
+            result = "Sunday"
+        return result
+    
+          
+    now = datetime.datetime.now()   
+    Ynow = now.year
+    mnow = now.month
+    Dnow = now.day
+    Hnow = now.hour
+    Mnow = now.minute
+    wDay = calendar.weekday(Ynow, mnow, Dnow)
+    Wday = weekDay(wDay)
+    Utime = int(time.time())
+
+#    sfile = "/var/state/telldus-core.conf"
+#    fopen = open(sfile,"r")
+#    State = fopen.read();
+#    fopen.close()
+
+    obs = ephem.Observer()
+    obs.lat = "57.8"
+    obs.long = "12.06"
+    sunrise = str(obs.next_rising(ephem.Sun())).split(" ")
+    sunrise = sunrise[1]
+    sunset = str(obs.next_setting(ephem.Sun())).split(" ")
+    sunset = sunset[1]
+    sunrise = sunrise.split(":")
+    sunset = sunset.split(":")
+    Usunrise = mktime(datetime.datetime(Ynow, mnow, Dnow, int(sunrise[0]), int(sunrise[1]), int(sunrise[2]), 109000).timetuple())
+    Usunset = mktime(datetime.datetime(Ynow, mnow, Dnow, int(sunset[0]), int(sunset[1]), int(sunset[2]), 109000).timetuple())
+    if int(sunset[0]) > int(03) and Usunset < Usunrise:
+        Usunset = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(sunset[0]), int(sunset[1]), int(sunset[2]), 109000).timetuple())
+    try:
+        db = MySQLdb.connect(
+                     host = "localhost",
+                     db = "tellstick",
+                     user= "td",
+                     passwd = "td"
+                     )
+    except Exception as e:
+        sys.exit("We cant get into the database")
+        
+    cursor = db.cursor()
+    cursor.execute("SELECT name FROM rc_switches")
+    Switches = cursor.fetchall()
+    cursor.execute("SELECT * FROM schedule")
+    result = cursor.fetchall()
+
+
+
+    #print "The time is now: " + str(now.hour) + ":" +str(now.minute)
+    #print int(datetime.datetime.now().strftime("%s"))+300
+    print "Next sunrise at: " + str(sunrise)
+    print "Next sunset at:" + str(sunset)
+
+    #if Switches:
+    #    for z in Switches:
+    #        os.system()
+    z = 1
+    
+        
+    if result:
+        for z in result:
+            rc_switch = z[0]
+            On = z[2].split(":")
+            Off = z[3].split(":")
+            Days = z[4].split(",")
+
+            if On[0] == "sunrise" or On[0] == "sunset":
+                if On[0] == "sunrise":
+                    OnE = sunrise
+                    if str(On[1]) == "+":
+                        HOn = int(On[2])+int(sunrise[0])
+                        MOn = int(On[3])+int(sunrise[1])
+                    else:
+                        HOn = int(On[2])-int(sunrise[0])
+                        MOn = int(On[3])-int(sunrise[1])
+
+                else:
+                    OnE = sunset
+                    if str(On[1]) == "+":
+                        HOn = int(On[2])+int(sunset[0])
+                        MOn = int(On[3])+int(sunset[1])
+                    else:
+                        HOn = int(On[2])-int(sunset[0])
+                        MOn = int(On[3])-int(sunset[1])
+                    
+                HOn = checkHM(HOn,MOn)[0]
+                MOn = checkHM(HOn,MOn)[1]
+                if str(On[0]) != "No":
+                    UOn = mktime(datetime.datetime(Ynow, mnow, Dnow, int(HOn), int(MOn), 00, 109000).timetuple())
+
+                print "On contains extra info"
+            else:
+                if str(On[0]) != "No":
+                    HOn = On[0]
+                    MOn = On[1]
+                    UOn = mktime(datetime.datetime(Ynow, mnow, Dnow, int(On[0]), int(On[1]), 00, 109000).timetuple())
+                print "No extra info on On"
+                On_extra = On[0]
+                
+            if Off[0] == "sunrise" or Off[0] == "sunset":
+                if Off[0] == "sunrise":
+                    OffE = sunrise
+                    if str(On[1]) == "+":
+                        HOff = int(Off[2])+int(sunrise[0])
+                        MOff = int(Off[3])+int(sunrise[1])
+                    else:
+                        HOff = int(Off[2])-int(sunrise[0])
+                        MOff = int(Off[3])-int(sunrise[1])
+                    soff = 1
+                else:
+                    OffE = sunset
+                    if str(On[1]) == "+":
+                        HOff = int(Off[2])+int(sunset[0])
+                        MOff = int(Off[3])+int(sunset[1])
+                    else:
+                        HOff = int(Off[2])-int(sunset[0])
+                        MOff = int(Off[3])-int(sunset[1])
+                        
+                HOff = checkHM(HOff,MOff)[0]
+                MOff = checkHM(HOff,MOff)[1]
+                
+                if str(Off) != "No":
+                    UOff = mktime(datetime.datetime(Ynow, mnow, Dnow, int(HOff), int(MOff), 00, 109000).timetuple())
+                if soff != 1 and UOn > UOff:
+                    UOff  = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(HOff), int(MOff), 00, 109000).timetuple())
+                print "Off contains extra info"
+            else:
+                if str(Off) != "No":
+                    HOff = Off[0]
+                    MOff = Off[1]
+                    UOff = mktime(datetime.datetime(Ynow, mnow, Dnow, int(Off[0]), int(Off[1]), 00, 109000).timetuple())
+                if UOn > UOff:
+                    UOff  = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(Off[0]), int(Off[1]), 00, 109000).timetuple())
+                print "No extra info on Off"
+                Off_extra = Off[0]
+                   
+            if soff == 1:
+                if UOn > UOff:
+                    On[0] = "No"
+                    print "Sunrise or sunset is set and Off is set to be before off so On is set to NO"
+                    print On[0]
+         
+            
+            Tnow = str(Hnow) + str(Mnow)
+            delay = z[5]
+            
+            def days(days):
+                p = 0
+                if days[0] != "All":
+                    for i in days:
+                        if i == Wday:
+                            p = 1    
+                    if p == 1:
+                        print "This rule applies today"
+                        result = 1
+                    else:
+                        print "This rule does not apply today"
+                        result = 0
+                else:
+                    print "this rule is set to all days"
+                    result = 1
+                return result
+            Dtoday = days(Days)
+            if Dtoday == 1: 
+                ## Run Once when started 
+                if start == 1:      
+                    if int(z[1])==1:
+                        group = group(rc_switch)
+                        if int(time.time()) > int(UOn) and int(time.time()) < int(UOff) :
+                            for i in group:
+                                if str(On[0]) != "No":
+                                    #time.sleep(float(delay))
+                                    #   print "os.system(" + cmd + " --on " + i +")"
+                                    os.system(cmd + " --on " + i)
+                                    
+                        else:
+                            for i in group:
+                                if str(Off[0]) != "No":
+                                    #time.sleep(float(delay))
+                                    #  print "os.system(" + cmd + " --off " + i + ")"   
+                                    os.system(cmd + " --off " + i)  
+                       
+                        
+                    else:
+                        if int(time.time()) > int(UOn) and int(time.time()) < int(UOff):
+                            if str(On[0]) != "No":
+                                #  print "os.system(" + cmd + " --on " + rc_switch + ")"
+                                os.system(cmd + " --on " + rc_switch)
+                            
+                        else:
+                            if str(Off[0]) != "No":
+                                # print "os.system(" + cmd + " --off " + rc_switch + ")"
+                                os.system(cmd + " --on " + rc_switch)
+                    start = 0
+                ### End Startup run
+                
+                if int(z[1])==1:
+                        group = group(rc_switch)
+                        if int(Hnow) == int(HOn) and int(Mnow) == int(MOn) or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+1 or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+2:
+                            for i in group:
+                                if str(On[0]) != "No":
+                                    time.sleep(float(delay))
+                                    print "os.system(" + cmd + " --on " + i +")"
+                                    os.system(cmd + " --on " + i)
+                                    
+                        if int(Hnow) == int(HOff) and int(Mnow) == int(MOff) or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+1 or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+2:
+                            for i in group:
+                                if str(Off[0]) != "No":
+                                    time.sleep(float(delay))
+                                    print "os.system(" + cmd + " --off " + i + ")"
+                                    os.system(cmd + " --off " + i)
+                                    
+                    
+                        #print "Switches:" + z[0] +" On at: " + z[2] + " and Off at: " + z[3]  + "with delay:" + delay
+                        
+                else:
+                    if int(Hnow) == int(HOn) and int(Mnow) == int(MOn) or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+1 or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+2:
+                        if str(On[0]) != "No":
+                            print "os.system(" + cmd + " --on " + rc_switch + ")"
+                            os.system(cmd + " --on " + rc_switch)
+                    
+                    if int(Hnow) == int(HOff) and int(Mnow) == int(MOff) or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+1 or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+2:
+                        if str(Off[0]) != "No":
+                            print "os.system(" + cmd + " --off " + rc_switch + ")"
+                            os.system(cmd + " --off " + rc_switch)    
+            print "Switches:" + z[0] +" On at: " + z[2] + " and Off at: " + z[3] + " with delay:" + delay
+                        
+                
+    count = int(count)+1
+    print "Going to sleep " + str(count)
+    time.sleep(60)
+    print "Done sleeping"
+

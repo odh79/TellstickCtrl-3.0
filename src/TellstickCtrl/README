@@ -1,0 +1,21 @@
+
+
+
+	
+depends on
+http://pypi.python.org/pypi/ephem/
+td.py
+tdtool
+
+
+Changelog:
+
+New in version 2.4.2
+	Added the option to choose between tdtool and td.py from commandline. Use td for td.py and tdtool for tdtool
+
+New in version 2.4.1
+	 Changed back to tdtool becuse of problem with pytelldus lib
+
+New in version 2.1
+	new queue function
+	bug fixes

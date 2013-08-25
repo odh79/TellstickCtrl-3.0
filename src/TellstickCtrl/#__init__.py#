@@ -1,0 +1,497 @@
+import MySQLdb
+import sys
+import datetime
+from time import mktime
+import calendar
+import time
+import ephem
+import os
+import td,tdmod
+import threading, Queue
+
+
+
+
+Version = 2.2
+debug = 0
+count = 0
+start = 1
+ActionTimerExit = 0
+queue = Queue.Queue(20)
+
+
+
+
+if len(sys.argv) > 1:
+    if sys.argv[1] == "debug" :
+        debug = 1
+    if sys.argv[1] == "help":
+        print("Use: __init__.py debug for debuggin")
+        sys.exit()
+    if sys.argv[1] == "-V":
+        print("Version " + str(Version))
+        sys.exit()
+
+
+class ActionTimer(threading.Thread):
+    def __init__(self,queue1):
+        threading.Thread.__init__(self)
+        self.queue = queue
+        print(self,"Thread initiated")
+        
+        
+        
+    def run(self):
+        print("ActionTimer","run started")
+        while ActionTimerExit != 1:
+            if debug == 1:
+                print("ActionTimer:", "getting data from queue")
+            while queue.empty():
+                time.sleep(2)
+            
+            try:
+                data = queue.get(2)
+            except Exception as e:
+                print("Exception", e)
+                 
+            if debug == 1:
+                print("ActionTimer:", "got data")
+            sdata = data.split(",")
+            if sdata[1] == "On":
+                if debug ==1:
+                    print("ActionTimer:","Thread executing On")
+                    
+                tdmod.SendOn(sdata[0])
+                print("ActionTimer:",sdata)
+                if debug == 1:
+                    print("ActionTimer:",sdata[0],"On")
+            
+            elif sdata[1] == "Off":
+                if debug ==1:
+                    print("ActionTimer:","Thread executing Off")
+                    
+/                tdmod.SendOff(sdata[0])
+                print("ActionTimer:",sdata)
+                if debug == 1:
+                    "ActionTimer:",sdata[0],"Off"
+            time.sleep(float(sdata[2]))           
+        if debug == 1:
+            print("ActionTimer:",self,"Is done!")
+ 
+                
+    
+       
+        
+def makeJobb(switch, action, delay):
+    out = str(switch + "," + action + "," + delay)    
+    
+    return out
+
+
+
+def fetch_group(group):
+    stri = "SELECT `rc_switches`  FROM `groups` WHERE `Group` = \'" + group + "\'" 
+    cursor.execute(stri)
+    Group = cursor.fetchall()
+    print ("Group:",group, ", in group: " , Group) 
+    out = (Group[0][0]).split(";") 
+    return out
+    
+def checkHM(H,M):
+    if M >= 60:
+        M = M - 60
+        H = H + 1
+    if M < 0:
+        M = M + 60
+        H = H - 1
+        
+    result = [H, M]
+    return result
+
+def checkDOM(year,month,day):
+    ndays = calendar.monthrange(year,month)
+    nday = day + 1
+    out = []
+    
+    if nday > ndays[1]:
+        if month < 12 :
+            out.append(year) 
+            out.append(month + 1)
+            out.append(1)
+        else :
+            out.append(year + 1) 
+            out.append(1)
+            out.append(1) 
+    else :
+        out.append(year)
+        out.append(month)
+        out.append(day)
+        
+        
+    if debug == 1 :
+        print("CheckDOM: Year:"  +  str(out[0]) + " " + "Month:"  + str(out[1]) + " " + "Day:" + str(out[2]))
+    return out
+    
+
+def weekDay(wday):
+    result = ""
+    if wday == 0:
+        result = "Monday"
+    if wday == 1:
+        result = "Tuesday"
+    if wday == 2:
+        result = "Wednesday"
+    if wday == 3:
+        result = "Thursday"
+    if wday == 4:
+        result = "Friday"
+    if wday == 5:
+        result = "Saturday"
+    if wday == 6:
+        result = "Sunday"
+    return result
+
+def days(days):
+    p = 0
+    if days[0] != "All":
+        for i in days:
+            if i == Wday:
+                p = 1    
+        if p == 1:
+            print("This rule applies today")
+            result = 1
+        else:
+            print("This rule does not apply today")
+            result = 0
+    else:
+        print("this rule is set to all days")
+        result = 1
+    return result
+
+
+Atimer = ActionTimer(queue)
+Atimer.daemon = True
+Atimer.start()
+                    
+# init connection to telldusd
+td.init( defaultMethods = td.TELLSTICK_TURNON | td.TELLSTICK_TURNOFF ) 
+
+#while count < 100000:
+while 1 :
+    
+    son = 0
+    soff = 0    
+    now = datetime.datetime.now()   
+    Ynow = now.year
+    mnow = now.month
+    Dnow = now.day
+    Hnow = now.hour
+    Mnow = now.minute
+    wDay = calendar.weekday(Ynow, mnow, Dnow)
+    Wday = weekDay(wDay)
+    Utime = int(time.time())
+
+
+
+    obs = ephem.Observer()
+    obs.lat = "57.8"
+    obs.long = "12.06"
+    sunrise = str(obs.next_rising(ephem.Sun())).split(" ")
+    sunrise = sunrise[1]
+    sunset = str(obs.next_setting(ephem.Sun())).split(" ")
+    sunset = sunset[1]
+    sunrise = sunrise.split(":")
+    sunset = sunset.split(":")
+    Usunrise = mktime(datetime.datetime(Ynow, mnow, Dnow, int(sunrise[0]), int(sunrise[1]), int(sunrise[2]), 109000).timetuple())
+    Usunset = mktime(datetime.datetime(Ynow, mnow, Dnow, int(sunset[0]), int(sunset[1]), int(sunset[2]), 109000).timetuple())
+    if int(sunset[0]) > int(0o3) and Usunset < Usunrise:
+        YMD = checkDOM(Ynow,mnow,Dnow)
+        Usunset = mktime(datetime.datetime(YMD[0], YMD[1], YMD[2], int(sunset[0]), int(sunset[1]), int(sunset[2]), 109000).timetuple())
+        #Usunset = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(sunset[0]), int(sunset[1]), int(sunset[2]), 109000).timetuple())
+    if debug == 1:
+        print("Connecting to Db")
+    try:
+        db = MySQLdb.connect(
+                     host = "localhost",
+                     db = "tellstick",
+                     user= "td",
+                     passwd = "td"
+                     )
+    except Exception as e:
+        #sys.exit("We cant get into the database")
+        print("We cant get into the database")
+        time.sleep(30)
+        continue
+        
+        
+    cursor = db.cursor()
+    cursor.execute("SELECT name FROM rc_switches")
+    Switches = cursor.fetchall()
+    cursor.execute("SELECT * FROM schedule")
+    result = cursor.fetchall()
+
+ 
+    print("Next sunrise at: " + str(sunrise))
+    print("Next sunset at:" + str(sunset))
+
+
+    z = 1
+    
+        
+    if result:
+        for z in result:
+            rc_switch = z[1]
+            gRoup = z[2]
+            On = z[3].split(":")
+            Off = z[4].split(":")
+            Days = z[5].split(",")
+            delay = z[6]
+            
+            
+            
+            if On[0] == "sunrise" or On[0] == "sunset":
+                
+                if On[0] == "sunrise":
+                    if debug == 1:
+                        print("Sunrise")
+                    OnE = sunrise
+                    if len(On) > 2:
+                        if str(On[1]) == "+":
+                            HOn = int(On[2])+int(sunrise[0])
+                            MOn = int(On[3])+int(sunrise[1])
+                        else:
+                            HOn = int(On[2])-int(sunrise[0])
+                            MOn = int(On[3])-int(sunrise[1])
+                    else:
+                        HOn = int(sunrise[0])
+                        MOn = int(sunrise[1])
+
+                else:
+                    if debug == 1:
+                        print("Sunset")
+                    OnE = sunset
+                    if len(On) > 2:
+                        if str(On[1]) == "+":
+                            HOn = int(On[2])+int(sunset[0])
+                            MOn = int(On[3])+int(sunset[1])
+                        else:
+                            HOn = int(On[2])-int(sunset[0])
+                            MOn = int(On[3])-int(sunset[1])
+                    else:
+                        HOn = int(sunset[0])
+                        MOn = int(sunset[1])
+                    
+                HOn = checkHM(HOn,MOn)[0]
+                MOn = checkHM(HOn,MOn)[1]
+                
+                if str(On[0]) != "No":
+                    UOn = mktime(datetime.datetime(Ynow, mnow, Dnow, int(HOn), int(MOn), 00, 109000).timetuple())
+
+                print("On contains extra info")
+            else:
+                if str(On[0]) != "No":
+                    print("On:",On)
+                    HOn = On[0]
+                    MOn = On[1]
+                    UOn = mktime(datetime.datetime(Ynow, mnow, Dnow, int(On[0]), int(On[1]), 00, 109000).timetuple())
+                print("No extra info on On")
+                On_extra = On[0]
+                
+            if Off[0] == "sunrise" or Off[0] == "sunset":
+                if Off[0] == "sunrise":
+                    if debug == 1:
+                        print("Off: sunrise")
+                    OffE = sunrise
+                    if len(Off) > 2:
+                        if str(Off[1]) == "+":
+                            HOff = int(Off[2])+int(sunrise[0])
+                            MOff = int(Off[3])+int(sunrise[1])
+                        else:
+                            HOff = int(Off[2])-int(sunrise[0])
+                            MOff = int(Off[3])-int(sunrise[1])
+                    else:
+                        if debug == 1:
+                            print("just sunrise")
+                        Hoff = int(sunrise[0])
+                        MOff = int(sunrise[1])
+                    soff = 1
+                    
+                else:
+                    if debug == 1:
+                        print("Off: sunset")
+                    OffE = sunset
+                    if len(Off) > 2:
+                        
+                        if str(Off[1]) == "+":
+                            HOff = int(Off[2])+int(sunset[0])
+                            MOff = int(Off[3])+int(sunset[1])
+                        else:
+                            HOff = int(Off[2])-int(sunset[0])
+                            MOff = int(Off[3])-int(sunset[1])
+                    else:
+                        if debug == 1:
+                            print("Off: just sunset")
+                        HOff = int(sunset[0])
+                        MOff = int(sunset[1]) 
+                           
+                HOff = checkHM(HOff,MOff)[0]
+                MOff = checkHM(HOff,MOff)[1]
+                
+                if str(Off[0]) != "No":
+                    UOff = mktime(datetime.datetime(Ynow, mnow, Dnow, int(HOff), int(MOff), 00, 109000).timetuple())
+                if soff != 1 and UOn > UOff:
+                    Dnow = checkDOM(Ynow,mnow,Dnow)
+                    UOff  = mktime(datetime.datetime(Ynow, mnow, Dnow, int(HOff), int(MOff), 00, 109000).timetuple())
+                    #UOff  = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(HOff), int(MOff), 00, 109000).timetuple())
+                print("Off contains extra info")
+            else:
+                if str(Off[0]) != "No":
+                    HOff = Off[0]
+                    MOff = Off[1]
+                    UOff = mktime(datetime.datetime(Ynow, mnow, Dnow, int(Off[0]), int(Off[1]), 00, 109000).timetuple())
+                    if str(On[0]) !="No" and UOn > UOff:
+                        YMD = checkDOM(Ynow,mnow,Dnow)
+                        UOff  = mktime(datetime.datetime(YMD[0], YMD[1], YMD[2], int(Off[0]), int(Off[1]), 00, 109000).timetuple())
+                        #UOff  = mktime(datetime.datetime(Ynow, mnow, Dnow+1, int(Off[0]), int(Off[1]), 00, 109000).timetuple())
+                print("No extra info on Off")
+                Off_extra = Off[0]
+                   
+            if soff == 1:
+                if UOn > UOff:
+                    On[0] = "No"
+                    print("Sunrise or sunset is used and Off time is set to be before On so On is ignored")
+                    print(On[0])
+         
+            
+            Tnow = str(Hnow) + str(Mnow)
+           
+            
+            
+            Dtoday = days(Days)
+            if Dtoday == 1: 
+                ## Run Once when started 
+                if start == 1:    
+                    if debug == 1:
+                        print("Starting Run once when started")  
+                    
+                    if debug == 1: 
+                        print("Startup run starts")  
+                    if int(gRoup)==1:
+                        group = fetch_group(rc_switch)
+                        g_length = len(rc_switch)
+                        queue = Queue.Queue(g_length)
+                        if int(time.time()) > int(UOn) and int(time.time()) < int(UOff) or int(time.time()) > int(UOn) and str(Off[0]) !="No" :
+                            for rc_s in group:
+                                if str(On[0]) != "No":
+                                   
+                                    if debug == 1:
+                                        print("Run once: GroupOn")   
+                                    while queue.full():
+                                        print("Queue is full", rc_s,"1")
+                                        time.sleep(1)
+                                    
+                                    queue.put(makeJobb(rc_s, "On", "2"))
+
+                        else:
+                            for rc_s in group:
+                                if str(Off[0]) != "No":
+
+                                    if debug == 1:
+                                        print("Run once: GroupOff")
+   
+                                    while queue.full():
+                                        print("Queue is full",rc_s,"2")
+                                        time.sleep(1)
+                                        
+                                    queue.put(makeJobb(rc_s, "Off", "2"))
+        
+                    else:
+                        if str(On[0]) != "No" :
+                            if  int(time.time()) > int(UOn) and int(time.time()) < int(UOff) or int(time.time()) > int(UOn) and str(Off[0]) !="No":
+
+                                print "Run once: tdmod.SendOn("+rc_switch+")"
+
+                                while queue.full():
+                                    print("Queue is full",rc_switch,"3")
+                                    time.sleep(1)
+                                    
+                                queue.put(makeJobb(rc_switch, "On", delay))
+                            else:
+                            #if str(Off[0]) != "No":
+
+                                print "Run once: tdmod.SendOff("+rc_switch+")"
+
+                                while queue.full():
+                                    print("Queue is full",rc_switch, "4")
+                                    time.sleep(1)
+                                     
+                                queue.put(makeJobb(rc_switch, "Off", delay))
+                            
+                ### End Startup run
+                
+                if start == 0 :
+                    if int(gRoup)==1:
+                            group = fetch_group(rc_switch)
+    
+                            if int(Hnow) == int(HOn) and int(Mnow) == int(MOn) or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+1 or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+2:
+                                for i in group:
+                                    if str(On[0]) != "No":
+    
+                                        while queue.full():
+                                            print("Queue is full",i, "5")
+                                            time.sleep(1)
+                                        queue.put(makeJobb(i, "On", delay))
+    
+                                        
+                            if int(Hnow) == int(HOff) and int(Mnow) == int(MOff) or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+1 or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+2:
+                                for i in group:
+                                    if str(Off[0]) != "No":
+                                        time.sleep(float(delay))
+    
+                                        while queue.full():
+                                            print("Queue is full",i,"6")
+                                            time.sleep(1)
+                                            
+                                        queue.put(makeJobb(i, "Off", delay))
+     
+                            
+                    else:
+                        if str(On[0]) !="No":
+                            if  int(Hnow) == int(HOn) and int(Mnow) == int(MOn) or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+1 or int(Hnow) == int(HOn) and int(Mnow) == int(MOn)+2:
+                                if str(On[0]) != "No":
+    
+                                    while queue.full():
+                                        print("Queue is full",rc_switch,"7")
+                                        time.sleep(1)
+                                        
+                                    queue.put(makeJobb(rc_switch, "On", delay))
+                                    print "tdmod.SendOn("+ rc_switch+")"
+    
+                               
+                                        
+                        if str(Off[0]) !="No":
+                            if  int(Hnow) == int(HOff) and int(Mnow) == int(MOff) or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+1 or int(Hnow) == int(HOff) and int(Mnow) == int(MOff)+2:
+                                if str(Off[0]) != "No":
+    
+                                    while queue.full():
+                                        print("Queue is full",rc_switch, "8")
+                                        time.sleep(1)
+                                        
+                                    queue.put(makeJobb(rc_switch, "Off", delay))
+                                    print "tdmod.SendOff("+ rc_switch+")"
+    
+                               
+                print("Switches:" + rc_switch +" On at: " + z[3]+ " and Off at: " + z[4] + " with delay:" + delay)
+    
+    if start == 1 and debug == 1:
+        print("Startup run ends")                
+    start = 0
+    count = int(count)+1
+    print("Going to sleep " + str(count))
+    time.sleep(60)
+    print("Done sleeping")
+print("Waiting for threads to exit")
+ActionTimerExit = 1
+
+print("Exit program!")
+td.close()
